@@ -4,7 +4,7 @@ const path = require("path");
 const axios = require("axios");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // BOT TOKENINGIZNI YOZING (bot.js dagi bilan bir xil)
 const BOT_TOKEN = "8660848497:AAE6oVEe-36oknS3axnr7FqJ956BZ_FDLtY"; // <-- SHU YERGA O‘Z TOKENINGIZNI QO‘YING
