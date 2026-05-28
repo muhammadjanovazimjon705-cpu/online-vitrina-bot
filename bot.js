@@ -137,67 +137,187 @@ bot.action(/cat_(\d+)/, async (ctx) => {
   );
 });
 
-bot.on("text", async (ctx, next) => {
+bot.on('text', async (ctx, next) => {
   if (!ctx.session) ctx.session = {};
-
-  if (ctx.session.step === addNameStep) {
-    const name = ctx.message.text.trim();
-    if (name === "/cancel") {
-      await next();
-      return;
-    }
-    ctx.session.tempProduct.name = name;
-    ctx.session.step = addPriceStep;
-    await ctx.replyWithHTML(
-      "✅ <b>Nomi:</b> " +
-        name +
-        "\n\n" +
-        "3-qadam: <b>Narxi</b> necha so‘m?\n\n" +
-        "Masalan: <i>12000</i>\n\n" +
-        "Bekor qilish uchun /cancel"
-    );
-  } else if (ctx.session.step === addPriceStep) {
-    const price = parseInt(ctx.message.text);
-    if (isNaN(price)) {
+  
+  // Do'kon ro'yxatdan o'tkazish
+  if (ctx.session.step === storeNameStep) {
+      const name = ctx.message.text.trim();
+      if (name === '/cancel') {
+          await next();
+          return;
+      }
+      ctx.session.tempStore = { name };
+      ctx.session.step = storeAddressStep;
       await ctx.replyWithHTML(
-        "❌ <b>Iltimos, faqat son kiriting!</b>\n\nMasalan: 12000"
+          "✅ <b>Do‘kon nomi:</b> " + name + "\n\n" +
+          "2-qadam: <b>Do‘kon manzili</b>\n\n" +
+          "Masalan: <i>Chilonzor bozori, 12-dokon</i>\n\n" +
+          "Bekor qilish uchun /cancel"
       );
-      return;
-    }
-    ctx.session.tempProduct.price = price;
-    ctx.session.step = addPhotoStep;
-    await ctx.replyWithHTML(
-      "✅ <b>Narxi:</b> " +
-        price +
-        " so‘m\n\n" +
-        "4-qadam: <b>Mahsulot rasmini</b> yuboring (rasm yoki /skip)\n\n" +
-        "Bekor qilish uchun /cancel"
-    );
-  } else if (
-    ctx.session.step === addPhotoStep &&
-    ctx.message.text === "/skip"
-  ) {
-    const userId = ctx.from.id;
-    addProduct(userId, ctx.session.tempProduct);
-
-    await ctx.replyWithHTML(
-      "✅ <b>Mahsulot rasm holda qo‘shildi!</b>\n\n" +
-        "📂 <b>" +
-        ctx.session.tempProduct.category +
-        "</b>\n" +
-        "📦 <b>" +
-        ctx.session.tempProduct.name +
-        "</b> - " +
-        ctx.session.tempProduct.price +
-        " so‘m\n\n" +
-        "Yana mahsulot qo‘shish uchun /addproduct\n" +
-        "Barcha mahsulotlaringizni ko‘rish uchun /myproducts"
-    );
-
-    ctx.session.step = null;
-    ctx.session.tempProduct = null;
-  } else {
-    await next();
+  } 
+  else if (ctx.session.step === storeAddressStep) {
+      const address = ctx.message.text.trim();
+      if (address === '/cancel') {
+          await next();
+          return;
+      }
+      ctx.session.tempStore.address = address;
+      ctx.session.step = storePhoneStep;
+      await ctx.replyWithHTML(
+          "✅ <b>Manzil:</b> " + address + "\n\n" +
+          "3-qadam: <b>Telefon raqami</b>\n\n" +
+          "Masalan: <i>+998901234567</i>\n\n" +
+          "Bekor qilish uchun /cancel"
+      );
+  }
+  else if (ctx.session.step === storePhoneStep) {
+      const phone = ctx.message.text.trim();
+      if (phone === '/cancel') {
+          await next();
+          return;
+      }
+      ctx.session.tempStore.phone = phone;
+      ctx.session.tempStore.registeredAt = new Date().toISOString();
+      
+      const userId = ctx.from.id;
+      saveStore(userId, ctx.session.tempStore);
+      
+      await ctx.replyWithHTML(
+          "✅ <b>Do‘kon muvaffaqiyatli ro‘yxatdan o‘tdi!</b>\n\n" +
+          "🏪 <b>" + ctx.session.tempStore.name + "</b>\n" +
+          "📍 " + ctx.session.tempStore.address + "\n" +
+          "📞 " + ctx.session.tempStore.phone + "\n\n" +
+          "Mahsulot qo‘shish: /addproduct\n" +
+          "Do‘kon ma'lumotlarini ko‘rish: /mystore"
+      );
+      
+      ctx.session.step = null;
+      ctx.session.tempStore = null;
+  }
+  // Do'kon ma'lumotlarini tahrirlash
+  else if (ctx.session.step === editStoreNameStep) {
+      const newName = ctx.message.text.trim();
+      if (newName === '/cancel') {
+          await next();
+          return;
+      }
+      const userId = ctx.from.id;
+      const store = loadStore(userId);
+      if (store) {
+          store.name = newName;
+          saveStore(userId, store);
+          await ctx.replyWithHTML("✅ <b>Do‘kon nomi yangilandi!</b>\n\n🏪 Yangi nom: " + newName);
+      }
+      ctx.session.step = null;
+  }
+  else if (ctx.session.step === editStoreAddressStep) {
+      const newAddress = ctx.message.text.trim();
+      if (newAddress === '/cancel') {
+          await next();
+          return;
+      }
+      const userId = ctx.from.id;
+      const store = loadStore(userId);
+      if (store) {
+          store.address = newAddress;
+          saveStore(userId, store);
+          await ctx.replyWithHTML("✅ <b>Do‘kon manzili yangilandi!</b>\n\n📍 Yangi manzil: " + newAddress);
+      }
+      ctx.session.step = null;
+  }
+  else if (ctx.session.step === editStorePhoneStep) {
+      const newPhone = ctx.message.text.trim();
+      if (newPhone === '/cancel') {
+          await next();
+          return;
+      }
+      const userId = ctx.from.id;
+      const store = loadStore(userId);
+      if (store) {
+          store.phone = newPhone;
+          saveStore(userId, store);
+          await ctx.replyWithHTML("✅ <b>Do‘kon telefon raqami yangilandi!</b>\n\n📞 Yangi telefon: " + newPhone);
+      }
+      ctx.session.step = null;
+  }
+  // Mahsulot qo'shish (eski funksiyalar)
+  else if (ctx.session.step === addNameStep) {
+      const name = ctx.message.text.trim();
+      if (name === '/cancel') {
+          await next();
+          return;
+      }
+      ctx.session.tempProduct.name = name;
+      ctx.session.step = addPriceStep;
+      await ctx.replyWithHTML(
+          "✅ <b>Nomi:</b> " + name + "\n\n" +
+          "3-qadam: <b>Narxi</b> necha so‘m?\n\n" +
+          "Masalan: <i>12000</i>\n\n" +
+          "Bekor qilish uchun /cancel"
+      );
+  }
+  else if (ctx.session.step === addPriceStep) {
+      const price = parseInt(ctx.message.text);
+      if (isNaN(price)) {
+          await ctx.replyWithHTML("❌ <b>Iltimos, faqat son kiriting!</b>\n\nMasalan: 12000");
+          return;
+      }
+      ctx.session.tempProduct.price = price;
+      ctx.session.step = addPhotoStep;
+      await ctx.replyWithHTML(
+          "✅ <b>Narxi:</b> " + price + " so‘m\n\n" +
+          "4-qadam: <b>Mahsulot rasmini</b> yuboring (rasm yoki /skip)\n\n" +
+          "Bekor qilish uchun /cancel"
+      );
+  }
+  else if (ctx.session.step === addPhotoStep && ctx.message.text === '/skip') {
+      const userId = ctx.from.id;
+      addProduct(userId, ctx.session.tempProduct);
+      
+      await ctx.replyWithHTML(
+          "✅ <b>Mahsulot rasm holda qo‘shildi!</b>\n\n" +
+          "📦 <b>" + ctx.session.tempProduct.name + "</b> - " + ctx.session.tempProduct.price + " so‘m\n\n" +
+          "Yana mahsulot qo‘shish uchun /addproduct\n" +
+          "Barcha mahsulotlaringizni ko‘rish uchun /myproducts"
+      );
+      
+      ctx.session.step = null;
+      ctx.session.tempProduct = null;
+  }
+  // Mahsulot tahrirlash (eski funksiyalar)
+  else if (ctx.session.step === editNewName) {
+      const newName = ctx.message.text.trim();
+      if (newName === '/cancel') {
+          await next();
+          return;
+      }
+      const editData = ctx.session.editData;
+      updateProduct(ctx.from.id, editData.index, 'name', newName);
+      await ctx.replyWithHTML(
+          "✅ <b>Mahsulot nomi yangilandi!</b>\n\n" +
+          "📦 Yangi nom: " + newName
+      );
+      ctx.session.step = null;
+      ctx.session.editData = null;
+  }
+  else if (ctx.session.step === editNewPrice) {
+      const newPrice = parseInt(ctx.message.text);
+      if (isNaN(newPrice)) {
+          await ctx.replyWithHTML("❌ <b>Iltimos, faqat son kiriting!</b>");
+          return;
+      }
+      const editData = ctx.session.editData;
+      updateProduct(ctx.from.id, editData.index, 'price', newPrice);
+      await ctx.replyWithHTML(
+          "✅ <b>Mahsulot narxi yangilandi!</b>\n\n" +
+          "💰 Yangi narx: " + newPrice + " so‘m"
+      );
+      ctx.session.step = null;
+      ctx.session.editData = null;
+  }
+  else {
+      await next();
   }
 });
 
@@ -628,15 +748,21 @@ bot.command("cancel", async (ctx) => {
 
 bot.start(async (ctx) => {
   await ctx.replyWithHTML(
-    "🏪 <b>Online Vitrina Botiga xush kelibsiz!</b>\n\n" +
+      "🏪 <b>Online Vitrina Botiga xush kelibsiz!</b>\n\n" +
       "Sizning online vitrinangizni yaratishga yordam beraman.\n\n" +
-      "<b>Quyidagi buyruqlardan foydalaning:</b>\n" +
-      "/addproduct - Yangi mahsulot qo‘shish (kategoriya bilan)\n" +
-      "/myproducts - Mahsulotlarimni ko‘rish (kategoriya bo‘yicha)\n" +
-      "/categories - Kategoriyalarni ko‘rish\n" +
+      "<b>📌 SOTUVCHI UCHUN:</b>\n" +
+      "/setupstore - Do‘kon ro‘yxatdan o‘tkazish\n" +
+      "/mystore - Do‘kon ma'lumotlarini ko‘rish\n" +
+      "/editstore - Do‘kon ma'lumotlarini tahrirlash\n" +
+      "/addproduct - Yangi mahsulot qo‘shish\n" +
+      "/myproducts - Mahsulotlarimni ko‘rish\n" +
+      "/categories - Kategoriyalar\n" +
       "/editproduct - Mahsulot tahrirlash\n" +
-      "/deleteproduct - Mahsulot o‘chirish\n" +
-      "/link - Vitrina linkingizni olish\n" +
+      "/deleteproduct - Mahsulot o‘chirish\n\n" +
+      "<b>📌 MIJOZ UCHUN (tez kunda):</b>\n" +
+      "/stores - Do‘konlar ro‘yxati\n" +
+      "/store &lt;id&gt; - Do‘kon mahsulotlari\n\n" +
+      "/link - Vitrina linkingiz\n" +
       "/help - Yordam"
   );
 });
@@ -650,29 +776,26 @@ bot.command("link", async (ctx) => {
   );
 });
 
-bot.command("help", async (ctx) => {
+bot.command('help', async (ctx) => {
   await ctx.replyWithHTML(
-    "❓ <b>Yordam</b>\n\n" +
-      "<b>Qanday foydalaniladi?</b>\n\n" +
-      "1. /addproduct - Mahsulot qo‘shish (kategoriya tanlang)\n" +
-      "2. So‘ralgan ma'lumotlarni kiriting\n" +
-      "3. /myproducts - Barcha mahsulotlaringizni ko‘ring\n" +
-      "4. /categories - Kategoriyalar va mahsulotlar soni\n" +
-      "5. /editproduct - Mahsulot nomi, narxi yoki kategoriyasini o‘zgartirish\n" +
-      "6. /deleteproduct - Mahsulot o‘chirish\n\n" +
-      "<b>Barcha buyruqlar:</b>\n" +
-      "/start - Botni boshlash\n" +
+      "❓ <b>Yordam</b>\n\n" +
+      "<b>🏪 DO‘KON BOSHQARISH:</b>\n" +
+      "/setupstore - Do‘kon ro‘yxatdan o‘tkazish\n" +
+      "/mystore - Do‘kon ma'lumotlarini ko‘rish\n" +
+      "/editstore - Do‘kon ma'lumotlarini tahrirlash\n\n" +
+      "<b>📦 MAHSULOT BOSHQARISH:</b>\n" +
       "/addproduct - Yangi mahsulot qo‘shish\n" +
-      "/myproducts - Mahsulotlar ro‘yxati\n" +
+      "/myproducts - Mahsulotlarimni ko‘rish\n" +
       "/categories - Kategoriyalar\n" +
       "/editproduct - Mahsulot tahrirlash\n" +
-      "/deleteproduct - Mahsulot o‘chirish\n" +
+      "/deleteproduct - Mahsulot o‘chirish\n\n" +
+      "<b>🔗 UMUMIY:</b>\n" +
       "/link - Vitrina linkingiz\n" +
+      "/start - Botni boshlash\n" +
       "/help - Yordam\n" +
       "/cancel - Amalni bekor qilish"
   );
 });
-
 // ================ BOTNI ISHGA TUSHIRISH ================
 bot
   .launch()
@@ -681,3 +804,238 @@ bot
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
+
+// ================ DO'KON MA'LUMOTLARI UCHUN YANGI FUNKSIYALAR ================
+const STORES_FILE = 'stores.json';
+
+function loadStore(userId) {
+    try {
+        if (fs.existsSync(STORES_FILE)) {
+            const data = JSON.parse(fs.readFileSync(STORES_FILE, 'utf8'));
+            return data[userId] || null;
+        }
+    } catch (error) {
+        console.error('Do‘kon ma'lumotlarini o‘qishda xatolik:', error);
+    }
+    return null;
+}
+
+function saveStore(userId, storeData) {
+    try {
+        let allStores = {};
+        if (fs.existsSync(STORES_FILE)) {
+            allStores = JSON.parse(fs.readFileSync(STORES_FILE, 'utf8'));
+        }
+        allStores[userId] = storeData;
+        fs.writeFileSync(STORES_FILE, JSON.stringify(allStores, null, 2));
+        return true;
+    } catch (error) {
+        console.error('Do‘kon ma'lumotlarini saqlashda xatolik:', error);
+        return false;
+    }
+}
+
+function getAllStores() {
+    try {
+        if (fs.existsSync(STORES_FILE)) {
+            return JSON.parse(fs.readFileSync(STORES_FILE, 'utf8'));
+        }
+    } catch (error) {
+        console.error('Barcha do‘konlarni o‘qishda xatolik:', error);
+    }
+    return {};
+}
+
+// ================ DO'KON RO'YXATDAN O'TKAZISH ================
+const storeNameStep = 'store_name';
+const storeAddressStep = 'store_address';
+const storePhoneStep = 'store_phone';
+
+bot.command('setupstore', async (ctx) => {
+    const userId = ctx.from.id;
+    const existingStore = loadStore(userId);
+    
+    if (existingStore) {
+        await ctx.replyWithHTML(
+            "🏪 <b>Siz allaqachon do‘kon ro‘yxatdan o‘tkazgansiz!</b>\n\n" +
+            `📛 Do‘kon nomi: ${existingStore.name}\n` +
+            `📍 Manzil: ${existingStore.address}\n` +
+            `📞 Telefon: ${existingStore.phone}\n\n` +
+            "Ma'lumotlarni o‘zgartirish uchun /editstore"
+        );
+        return;
+    }
+    
+    if (!ctx.session) ctx.session = {};
+    ctx.session.step = storeNameStep;
+    
+    await ctx.replyWithHTML(
+        "🏪 <b>Do‘kon ro‘yxatdan o‘tkazish</b>\n\n" +
+        "1-qadam: <b>Do‘kon nomi</b> nima?\n\n" +
+        "Masalan: <i>Salimning mevalari, Oqibat texnika...</i>\n\n" +
+        "Bekor qilish uchun /cancel"
+    );
+});
+
+// Do'kon nomini qabul qilish
+bot.on('text', async (ctx, next) => {
+    if (!ctx.session) ctx.session = {};
+    
+    if (ctx.session.step === storeNameStep) {
+        const name = ctx.message.text.trim();
+        if (name === '/cancel') {
+            await next();
+            return;
+        }
+        ctx.session.tempStore = { name };
+        ctx.session.step = storeAddressStep;
+        await ctx.replyWithHTML(
+            "✅ <b>Do‘kon nomi:</b> " + name + "\n\n" +
+            "2-qadam: <b>Do‘kon manzili</b> (mijozlar borishi uchun)\n\n" +
+            "Masalan: <i>Chilonzor bozori, 12-dokon</i>\n\n" +
+            "Bekor qilish uchun /cancel"
+        );
+    } else if (ctx.session.step === storeAddressStep) {
+        const address = ctx.message.text.trim();
+        if (address === '/cancel') {
+            await next();
+            return;
+        }
+        ctx.session.tempStore.address = address;
+        ctx.session.step = storePhoneStep;
+        await ctx.replyWithHTML(
+            "✅ <b>Manzil:</b> " + address + "\n\n" +
+            "3-qadam: <b>Telefon raqami</b> (mijozlar bog‘lanishi uchun)\n\n" +
+            "Masalan: <i>+998901234567</i>\n\n" +
+            "Bekor qilish uchun /cancel"
+        );
+    } else if (ctx.session.step === storePhoneStep) {
+        const phone = ctx.message.text.trim();
+        if (phone === '/cancel') {
+            await next();
+            return;
+        }
+        ctx.session.tempStore.phone = phone;
+        ctx.session.tempStore.registeredAt = new Date().toISOString();
+        
+        const userId = ctx.from.id;
+        saveStore(userId, ctx.session.tempStore);
+        
+        await ctx.replyWithHTML(
+            "✅ <b>Do‘kon muvaffaqiyatli ro‘yxatdan o‘tdi!</b>\n\n" +
+            "🏪 <b>" + ctx.session.tempStore.name + "</b>\n" +
+            "📍 " + ctx.session.tempStore.address + "\n" +
+            "📞 " + ctx.session.tempStore.phone + "\n\n" +
+            "Endi mijozlar sizning do‘koningizni ko‘ra oladi!\n\n" +
+            "Mahsulot qo‘shish: /addproduct\n" +
+            "Do‘kon ma'lumotlarini ko‘rish: /mystore"
+        );
+        
+        ctx.session.step = null;
+        ctx.session.tempStore = null;
+    } else {
+        await next();
+    }
+});
+
+// ================ DO'KON MA'LUMOTLARINI KO'RISH ================
+bot.command('mystore', async (ctx) => {
+    const userId = ctx.from.id;
+    const store = loadStore(userId);
+    
+    if (!store) {
+        await ctx.replyWithHTML(
+            "🏪 <b>Siz hali do‘kon ro‘yxatdan o‘tkazmagansiz!</b>\n\n" +
+            "Do‘kon ro‘yxatdan o‘tkazish uchun: /setupstore"
+        );
+        return;
+    }
+    
+    let message = "🏪 <b>Sizning do‘koningiz</b>\n\n";
+    message += `📛 <b>Nomi:</b> ${store.name}\n`;
+    message += `📍 <b>Manzil:</b> ${store.address}\n`;
+    message += `📞 <b>Telefon:</b> ${store.phone}\n`;
+    message += `📅 <b>Ro‘yxatdan o‘tgan:</b> ${new Date(store.registeredAt).toLocaleDateString()}\n\n`;
+    message += "Ma'lumotlarni o‘zgartirish: /editstore";
+    
+    await ctx.replyWithHTML(message);
+});
+
+// ================ DO'KON MA'LUMOTLARINI TAHRIRLASH ================
+const editStoreNameStep = 'edit_store_name';
+const editStoreAddressStep = 'edit_store_address';
+const editStorePhoneStep = 'edit_store_phone';
+
+bot.command('editstore', async (ctx) => {
+    const userId = ctx.from.id;
+    const store = loadStore(userId);
+    
+    if (!store) {
+        await ctx.replyWithHTML(
+            "🏪 <b>Siz hali do‘kon ro‘yxatdan o‘tkazmagansiz!</b>\n\n" +
+            "Do‘kon ro‘yxatdan o‘tkazish uchun: /setupstore"
+        );
+        return;
+    }
+    
+    const keyboard = [
+        [{ text: "📛 Nomini o'zgartirish", callback_data: "edit_store_name" }],
+        [{ text: "📍 Manzilni o'zgartirish", callback_data: "edit_store_address" }],
+        [{ text: "📞 Telefonni o'zgartirish", callback_data: "edit_store_phone" }]
+    ];
+    
+    await ctx.replyWithHTML(
+        `✏️ <b>${store.name}</b> do‘kon ma'lumotlarini tahrirlash\n\n` +
+        `📛 Hozirgi nom: ${store.name}\n` +
+        `📍 Hozirgi manzil: ${store.address}\n` +
+        `📞 Hozirgi telefon: ${store.phone}\n\n` +
+        `Qaysi ma'lumotni o'zgartirmoqchisiz?`,
+        {
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: keyboard }
+        }
+    );
+});
+
+// Tahrirlash tugmalari
+bot.action('edit_store_name', async (ctx) => {
+    if (!ctx.session) ctx.session = {};
+    ctx.session.step = editStoreNameStep;
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+        "✏️ <b>Yangi do‘kon nomini kiriting:</b>\n\n" +
+        "Masalan: <i>Yangi nom</i>\n\n" +
+        "Bekor qilish uchun /cancel",
+        { parse_mode: 'HTML' }
+    );
+});
+
+bot.action('edit_store_address', async (ctx) => {
+    if (!ctx.session) ctx.session = {};
+    ctx.session.step = editStoreAddressStep;
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+        "📍 <b>Yangi manzilni kiriting:</b>\n\n" +
+        "Masalan: <i>Yangi manzil, 1-uy</i>\n\n" +
+        "Bekor qilish uchun /cancel",
+        { parse_mode: 'HTML' }
+    );
+});
+
+bot.action('edit_store_phone', async (ctx) => {
+    if (!ctx.session) ctx.session = {};
+    ctx.session.step = editStorePhoneStep;
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+        "📞 <b>Yangi telefon raqamini kiriting:</b>\n\n" +
+        "Masalan: <i>+998901234567</i>\n\n" +
+        "Bekor qilish uchun /cancel",
+        { parse_mode: 'HTML' }
+    );
+});
+
+// Tahrirlashni qabul qilish (text handler ga qo'shimcha)
+// Eski text handler ichiga quyidagi qismlarni qo'shing (keyingi qadamda)
+
+// ================ YANGILANGAN TEXT HANDLER (to'liq versiya) ================
+// Eski text handler ni quyidagi bilan almashtiring yoki qo'shing
