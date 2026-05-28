@@ -3,7 +3,7 @@ const { Telegraf, session } = require("telegraf");
 const fs = require("fs");
 
 // O‘Z TOKENINGIZNI YOZING!
-const BOT_TOKEN = "YOUR_TOKEN_HERE";
+const BOT_TOKEN = "8660848497:AAE6oVEe-36oknS3axnr7FqJ956BZ_FDLtY";
 
 // Botni yaratish va session qo‘shish
 const bot = new Telegraf(BOT_TOKEN);
