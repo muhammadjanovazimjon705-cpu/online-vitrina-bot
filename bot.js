@@ -3,13 +3,13 @@ const { Telegraf, session } = require("telegraf");
 const fs = require("fs");
 
 // O‘Z TOKENINGIZNI YOZING!
-const BOT_TOKEN = "8660848497:AAE6oVEe-36oknS3axnr7FqJ956BZ_FDLtY"; // <-- SHU YERGA O‘Z TOKENINGIZNI QO‘YING
+const BOT_TOKEN = "YOUR_TOKEN_HERE";
 
 // Botni yaratish va session qo‘shish
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
-// ================ MA'LUMOTLARNI SAQLASH FUNKSIYALARI ================
+// ================ MA'LUMOTLARNI SAQLASH ================
 const DATA_FILE = "products.json";
 
 function loadProducts(userId) {
@@ -53,10 +53,26 @@ function deleteProduct(userId, index) {
   return false;
 }
 
-// ================ MAHSULOT QO‘SHISH (DIALOG) ================
+function updateProduct(userId, index, field, value) {
+  const products = loadProducts(userId);
+  if (index >= 0 && index < products.length) {
+    products[index][field] = value;
+    saveProducts(userId, products);
+    return true;
+  }
+  return false;
+}
+
+// ================ MAHSULOT QO‘SHISH ================
 const productNameStep = "waiting_for_product_name";
 const productPriceStep = "waiting_for_product_price";
 const productPhotoStep = "waiting_for_product_photo";
+
+// ================ TAHRIRLASH HOLATLARI ================
+const editSelectProduct = "edit_select_product";
+const editSelectField = "edit_select_field";
+const editNewName = "edit_new_name";
+const editNewPrice = "edit_new_price";
 
 bot.command("addproduct", async (ctx) => {
   if (!ctx.session) ctx.session = {};
@@ -73,9 +89,8 @@ bot.command("cancel", async (ctx) => {
   if (!ctx.session) ctx.session = {};
   ctx.session.step = null;
   ctx.session.tempProduct = null;
-  await ctx.replyWithHTML(
-    "❌ <b>Bekor qilindi!</b> Qaytadan boshlash uchun /addproduct"
-  );
+  ctx.session.editData = null;
+  await ctx.replyWithHTML("❌ <b>Bekor qilindi!</b>");
 });
 
 bot.on("text", async (ctx, next) => {
@@ -116,6 +131,20 @@ bot.hears(/^\d+$/, async (ctx, next) => {
         "3-qadam: <b>Mahsulot rasmini</b> yuboring (rasm yoki /skip)\n\n" +
         "Bekor qilish uchun /cancel"
     );
+  } else if (ctx.session.step === editNewPrice) {
+    const newPrice = parseInt(ctx.message.text);
+    const editData = ctx.session.editData;
+    updateProduct(ctx.from.id, editData.index, "price", newPrice);
+    await ctx.replyWithHTML(
+      "✅ <b>Mahsulot narxi yangilandi!</b>\n\n" +
+        "📦 " +
+        editData.name +
+        " - yangi narx: " +
+        newPrice +
+        " so‘m"
+    );
+    ctx.session.step = null;
+    ctx.session.editData = null;
   } else {
     await next();
   }
@@ -171,6 +200,137 @@ bot.command("skip", async (ctx) => {
   }
 });
 
+// ================ MAHSULOT TAHRIRLASH ================
+bot.command("editproduct", async (ctx) => {
+  const userId = ctx.from.id;
+  const products = loadProducts(userId);
+
+  if (products.length === 0) {
+    await ctx.replyWithHTML(
+      "📭 <b>Tahrirlash uchun hech qanday mahsulot yo‘q!</b>\n\n" +
+        "Mahsulot qo‘shish uchun: /addproduct"
+    );
+    return;
+  }
+
+  let message = "✏️ <b>Qaysi mahsulotni tahrirlamoqchisiz?</b>\n\n";
+  const keyboard = [];
+
+  for (let i = 0; i < products.length; i++) {
+    const p = products[i];
+    message += `${i + 1}. ${p.name} - ${p.price} so‘m\n`;
+    keyboard.push([
+      { text: `${i + 1}. ${p.name}`, callback_data: `edit_select_${i}` },
+    ]);
+  }
+
+  message += "\n\n❌ Bekor qilish uchun /cancel";
+
+  await ctx.replyWithHTML(message, {
+    reply_markup: {
+      inline_keyboard: keyboard,
+    },
+  });
+});
+
+// Mahsulot tanlash
+bot.action(/edit_select_(\d+)/, async (ctx) => {
+  const index = parseInt(ctx.match[1]);
+  const products = loadProducts(ctx.from.id);
+
+  if (index >= 0 && index < products.length) {
+    const product = products[index];
+
+    if (!ctx.session) ctx.session = {};
+    ctx.session.editData = { index: index, name: product.name };
+
+    const keyboard = [
+      [
+        {
+          text: "✏️ Nomini o'zgartirish",
+          callback_data: `edit_field_name_${index}`,
+        },
+      ],
+      [
+        {
+          text: "💰 Narxini o'zgartirish",
+          callback_data: `edit_field_price_${index}`,
+        },
+      ],
+    ];
+
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+      `✏️ <b>${product.name}</b> tahrirlanmoqda\n\n` +
+        `📦 Hozirgi nom: ${product.name}\n` +
+        `💰 Hozirgi narx: ${product.price} so‘m\n\n` +
+        `Qaysi maydonni o'zgartirmoqchisiz?`,
+      {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: keyboard },
+      }
+    );
+  }
+});
+
+// Nomni tahrirlash
+bot.action(/edit_field_name_(\d+)/, async (ctx) => {
+  const index = parseInt(ctx.match[1]);
+
+  if (!ctx.session) ctx.session = {};
+  if (!ctx.session.editData) ctx.session.editData = {};
+  ctx.session.editData.index = index;
+  ctx.session.step = editNewName;
+
+  await ctx.answerCbQuery();
+  await ctx.editMessageText(
+    "✏️ <b>Yangi nomni kiriting:</b>\n\n" +
+      "Masalan: <i>Yangi Olma</i>\n\n" +
+      "Bekor qilish uchun /cancel",
+    { parse_mode: "HTML" }
+  );
+});
+
+// Narxni tahrirlash
+bot.action(/edit_field_price_(\d+)/, async (ctx) => {
+  const index = parseInt(ctx.match[1]);
+
+  if (!ctx.session) ctx.session = {};
+  if (!ctx.session.editData) ctx.session.editData = {};
+  ctx.session.editData.index = index;
+  ctx.session.step = editNewPrice;
+
+  await ctx.answerCbQuery();
+  await ctx.editMessageText(
+    "💰 <b>Yangi narxni kiriting:</b>\n\n" +
+      "Masalan: <i>15000</i>\n\n" +
+      "Bekor qilish uchun /cancel",
+    { parse_mode: "HTML" }
+  );
+});
+
+// Yangi nomni qabul qilish (text handler)
+bot.on("text", async (ctx, next) => {
+  if (!ctx.session) ctx.session = {};
+
+  if (ctx.session.step === editNewName) {
+    const newName = ctx.message.text.trim();
+    if (newName === "/cancel") {
+      await next();
+      return;
+    }
+    const editData = ctx.session.editData;
+    updateProduct(ctx.from.id, editData.index, "name", newName);
+    await ctx.replyWithHTML(
+      "✅ <b>Mahsulot nomi yangilandi!</b>\n\n" + "📦 Yangi nom: " + newName
+    );
+    ctx.session.step = null;
+    ctx.session.editData = null;
+  } else {
+    await next();
+  }
+});
+
 // ================ MAHSULOT O‘CHIRISH ================
 bot.command("deleteproduct", async (ctx) => {
   const userId = ctx.from.id;
@@ -204,7 +364,6 @@ bot.command("deleteproduct", async (ctx) => {
   });
 });
 
-// Tugma bosilganda o‘chirish (TO‘G‘RILANGAN QISM)
 bot.action(/delete_(\d+)/, async (ctx) => {
   const userId = ctx.from.id;
   const index = parseInt(ctx.match[1]);
@@ -214,7 +373,6 @@ bot.action(/delete_(\d+)/, async (ctx) => {
     const deletedProduct = products[index];
     deleteProduct(userId, index);
 
-    // TO‘G‘RILANGAN: answerCbQuery ishlatiladi
     await ctx.answerCbQuery(`✅ ${deletedProduct.name} o‘chirildi!`);
 
     await ctx.editMessageText(
@@ -269,6 +427,7 @@ bot.start(async (ctx) => {
       "<b>Quyidagi buyruqlardan foydalaning:</b>\n" +
       "/addproduct - Yangi mahsulot qo‘shish\n" +
       "/myproducts - Mahsulotlarimni ko‘rish\n" +
+      "/editproduct - Mahsulot tahrirlash\n" +
       "/deleteproduct - Mahsulot o‘chirish\n" +
       "/link - Vitrina linkingizni olish\n" +
       "/help - Yordam"
@@ -279,9 +438,7 @@ bot.command("link", async (ctx) => {
   const userId = ctx.from.id;
   await ctx.replyWithHTML(
     "🔗 <b>Sizning vitrina linkingiz:</b>\n" +
-      "<code>https://online-vitrina.uz/" +
-      userId +
-      "</code>\n\n" +
+      `<code>https://online-vitrina-bot.up.railway.app/${userId}</code>\n\n` +
       "Bu linkni mijozlaringizga yuboring!"
   );
 });
@@ -291,13 +448,15 @@ bot.command("help", async (ctx) => {
     "❓ <b>Yordam</b>\n\n" +
       "<b>Qanday foydalaniladi?</b>\n\n" +
       "1. /addproduct - Mahsulot qo‘shish\n" +
-      "2. So‘ralgan ma'lumotlarni kiriting (nom, narx, rasm)\n" +
+      "2. So‘ralgan ma'lumotlarni kiriting\n" +
       "3. /myproducts - Barcha mahsulotlaringizni ko‘ring\n" +
-      "4. /deleteproduct - Mahsulot o‘chirish\n\n" +
+      "4. /editproduct - Mahsulot nomi yoki narxini o‘zgartirish\n" +
+      "5. /deleteproduct - Mahsulot o‘chirish\n\n" +
       "<b>Barcha buyruqlar:</b>\n" +
       "/start - Botni boshlash\n" +
       "/addproduct - Yangi mahsulot qo‘shish\n" +
       "/myproducts - Mahsulotlar ro‘yxati\n" +
+      "/editproduct - Mahsulot tahrirlash\n" +
       "/deleteproduct - Mahsulot o‘chirish\n" +
       "/link - Vitrina linkingiz\n" +
       "/help - Yordam\n" +
@@ -309,7 +468,9 @@ bot.command("help", async (ctx) => {
 bot
   .launch()
   .then(() =>
-    console.log("✅ Bot ishga tushdi! (Qo‘shish + Ko‘rish + O‘chirish)")
+    console.log(
+      "✅ Bot ishga tushdi! (Qo‘shish + Ko‘rish + O‘chirish + Tahrirlash)"
+    )
   )
   .catch((err) => console.error("Xatolik:", err));
 
