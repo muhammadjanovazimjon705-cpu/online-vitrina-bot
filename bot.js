@@ -815,7 +815,7 @@ function loadStore(userId) {
             return data[userId] || null;
         }
     } catch (error) {
-        console.error('Do‘kon malumotlarini oqishda xatolik:', error);
+        console.error('Do‘kon ma‘lumotlarini o‘qishda xatolik:', error);
     }
     return null;
 }
@@ -830,7 +830,7 @@ function saveStore(userId, storeData) {
         fs.writeFileSync(STORES_FILE, JSON.stringify(allStores, null, 2));
         return true;
     } catch (error) {
-        console.error('Do‘kon malumotlarini saqlashda xatolik:', error);
+        console.error('Do‘kon ma‘lumotlarini saqlashda xatolik:', error);
         return false;
     }
 }
