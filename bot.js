@@ -1166,47 +1166,191 @@ bot.command("skip", async (ctx) => {
   }
 });
 
-// ================ ADMIN BUYRUQLARI ================
+// ADMIN BUYRUQLARI
 bot.command("admin", async (ctx) => {
   if (!isAdmin(ctx.from.id)) {
     await ctx.replyWithHTML("❌ Bu funksiya faqat admin uchun!");
     return;
   }
 
-  const users = loadUser(ctx.from.id) ? "..." : "";
   await ctx.replyWithHTML(
     "👑 <b>Admin panel</b>\n\n" +
-      "/admin users - Foydalanuvchilar soni\n" +
-      "/admin stores - Do'konlar soni\n" +
-      "/admin stats - Umumiy statistika"
+      "/adminusers - Foydalanuvchilar ro'yxati\n" +
+      "/adminstores - Do'konlar ro'yxati\n" +
+      "/adminstats - Umumiy statistika\n" +
+      "/adminbroadcast - Xabar yuborish\n" +
+      "/admindeleteuser - Foydalanuvchi o‘chirish"
   );
 });
 
-bot.command("admin_stats", async (ctx) => {
+bot.command("adminstats", async (ctx) => {
   if (!isAdmin(ctx.from.id)) return;
 
-  const allUsers = loadUser(ctx.from.id)
-    ? Object.keys(
-        JSON.parse(
-          fs.existsSync(USERS_FILE) ? fs.readFileSync(USERS_FILE, "utf8") : "{}"
-        )
-      ).length
-    : 0;
-  const allStores = Object.keys(getAllStores()).length;
-  let totalProducts = 0;
-  const allProducts = JSON.parse(
-    fs.existsSync(DATA_FILE) ? fs.readFileSync(DATA_FILE, "utf8") : "{}"
-  );
-  for (const userId in allProducts) {
-    totalProducts += allProducts[userId].length;
-  }
+  // Foydalanuvchilar soni
+  let usersCount = 0;
+  let storesCount = 0;
+  let productsCount = 0;
+  let ordersCount = 0;
+
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+      usersCount = Object.keys(users).length;
+    }
+  } catch (e) {}
+
+  try {
+    if (fs.existsSync(STORES_FILE)) {
+      const stores = JSON.parse(fs.readFileSync(STORES_FILE, "utf8"));
+      storesCount = Object.keys(stores).length;
+    }
+  } catch (e) {}
+
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const products = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+      for (const userId in products) {
+        productsCount += products[userId].length;
+      }
+    }
+  } catch (e) {}
+
+  try {
+    if (fs.existsSync(ORDERS_FILE)) {
+      const orders = JSON.parse(fs.readFileSync(ORDERS_FILE, "utf8"));
+      ordersCount = Object.keys(orders).length;
+    }
+  } catch (e) {}
 
   await ctx.replyWithHTML(
     "📊 <b>Umumiy statistika</b>\n\n" +
-      `👥 Foydalanuvchilar: ${allUsers}\n` +
-      `🏪 Do'konlar: ${allStores}\n` +
-      `📦 Jami mahsulotlar: ${totalProducts}`
+      `👥 Foydalanuvchilar: <b>${usersCount}</b> ta\n` +
+      `🏪 Do'konlar: <b>${storesCount}</b> ta\n` +
+      `📦 Mahsulotlar: <b>${productsCount}</b> ta\n` +
+      `🛒 Buyurtmalar: <b>${ordersCount}</b> ta\n` +
+      `👑 Admin: @${ctx.from.username || ctx.from.first_name}`
   );
+});
+
+bot.command("adminusers", async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return;
+
+  try {
+    if (!fs.existsSync(USERS_FILE)) {
+      await ctx.replyWithHTML("📭 <b>Hech qanday foydalanuvchi topilmadi!</b>");
+      return;
+    }
+
+    const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    const userList = Object.entries(users);
+
+    if (userList.length === 0) {
+      await ctx.replyWithHTML("📭 <b>Hech qanday foydalanuvchi topilmadi!</b>");
+      return;
+    }
+
+    let message = "👥 <b>Foydalanuvchilar ro‘yxati</b>\n\n";
+    for (const [userId, user] of userList.slice(0, 20)) {
+      message += `🆔 <code>${userId}</code>\n`;
+      message += `📛 ${user.firstName} ${user.lastName}\n`;
+      message += `📞 ${user.phone}\n`;
+      message += `🔹 @${user.username || "yo‘q"}\n`;
+      message += `───────────\n`;
+    }
+
+    if (userList.length > 20) {
+      message += `\n📊 Jami: ${userList.length} ta foydalanuvchi`;
+    }
+
+    await ctx.replyWithHTML(message);
+  } catch (error) {
+    await ctx.replyWithHTML("❌ Xatolik yuz berdi!");
+  }
+});
+
+bot.command("adminstores", async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return;
+
+  try {
+    if (!fs.existsSync(STORES_FILE)) {
+      await ctx.replyWithHTML("📭 <b>Hech qanday do‘kon topilmadi!</b>");
+      return;
+    }
+
+    const stores = JSON.parse(fs.readFileSync(STORES_FILE, "utf8"));
+    const storeList = Object.entries(stores);
+
+    if (storeList.length === 0) {
+      await ctx.replyWithHTML("📭 <b>Hech qanday do‘kon topilmadi!</b>");
+      return;
+    }
+
+    let message = "🏪 <b>Do‘konlar ro‘yxati</b>\n\n";
+    for (const [ownerId, store] of storeList.slice(0, 20)) {
+      message += `📛 <b>${store.name}</b>\n`;
+      message += `📍 ${store.address}\n`;
+      message += `📞 ${store.phone}\n`;
+      message += `👤 ID: <code>${ownerId}</code>\n`;
+      message += `───────────\n`;
+    }
+
+    if (storeList.length > 20) {
+      message += `\n📊 Jami: ${storeList.length} ta do‘kon`;
+    }
+
+    await ctx.replyWithHTML(message);
+  } catch (error) {
+    await ctx.replyWithHTML("❌ Xatolik yuz berdi!");
+  }
+});
+
+bot.command("adminbroadcast", async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return;
+
+  const message = ctx.message.text.replace("/adminbroadcast", "").trim();
+
+  if (!message) {
+    await ctx.replyWithHTML(
+      "📢 <b>Xabar yuborish</b>\n\n" +
+      "Foydalanish: <code>/adminbroadcast Xabar matni</code>\n\n" +
+      "Misol: <code>/adminbroadcast Yangi funksiya qo'shildi!</code>"
+    );
+    return;
+  }
+
+  try {
+    if (!fs.existsSync(USERS_FILE)) {
+      await ctx.replyWithHTML("❌ Hech qanday foydalanuvchi topilmadi!");
+      return;
+    }
+
+    const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    let sent = 0;
+    let failed = 0;
+
+    await ctx.replyWithHTML("📤 <b>Xabar yuborilmoqda...</b>");
+
+    for (const userId in users) {
+      try {
+        await bot.telegram.sendMessage(userId, 
+          "📢 <b>Admin xabari</b>\n\n" + message,
+          { parse_mode: "HTML" }
+        );
+        sent++;
+        await new Promise(resolve => setTimeout(resolve, 100)); // 100ms kutish
+      } catch (error) {
+        failed++;
+      }
+    }
+
+    await ctx.replyWithHTML(
+      "✅ <b>Xabar yuborish tugadi!</b>\n\n" +
+      `✅ Yuborildi: ${sent} ta\n` +
+      `❌ Yuborilmadi: ${failed} ta`
+    );
+  } catch (error) {
+    await ctx.replyWithHTML("❌ Xatolik yuz berdi!");
+  }
 });
 
 // ================ BOTNI ISHGA TUSHIRISH ================
