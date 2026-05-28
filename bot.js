@@ -9,6 +9,157 @@ const BOT_TOKEN = "8660848497:AAE6oVEe-36oknS3axnr7FqJ956BZ_FDLtY";
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
+// ================ BUYURTMA TIZIMI ================
+const ORDERS_FILE = "orders.json";
+const CART_FILE = "cart.json";
+
+// Buyurtma holatlari
+const ORDER_STATUS = {
+  NEW: "🆕 Yangi",
+  PROCESSING: "⏳ Jarayonda",
+  SHIPPED: "🚚 Yuborilgan",
+  DELIVERED: "✅ Yetkazilgan",
+  CANCELLED: "❌ Bekor qilingan",
+};
+
+// Buyurtmani saqlash
+function saveOrder(orderData) {
+  try {
+    let allOrders = {};
+    if (fs.existsSync(ORDERS_FILE)) {
+      allOrders = JSON.parse(fs.readFileSync(ORDERS_FILE, "utf8"));
+    }
+    const orderId = Date.now().toString();
+    allOrders[orderId] = {
+      id: orderId,
+      ...orderData,
+      status: ORDER_STATUS.NEW,
+      createdAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(ORDERS_FILE, JSON.stringify(allOrders, null, 2));
+    return orderId;
+  } catch (error) {
+    console.error("Buyurtmani saqlashda xatolik:", error);
+    return null;
+  }
+}
+
+// Buyurtmalarni o'qish
+function loadOrders(userId, role = "customer") {
+  try {
+    if (fs.existsSync(ORDERS_FILE)) {
+      const allOrders = JSON.parse(fs.readFileSync(ORDERS_FILE, "utf8"));
+      const filtered = {};
+      for (const [id, order] of Object.entries(allOrders)) {
+        if (role === "customer" && order.customerId === userId) {
+          filtered[id] = order;
+        } else if (role === "seller" && order.storeId === userId) {
+          filtered[id] = order;
+        }
+      }
+      return filtered;
+    }
+  } catch (error) {
+    console.error("Buyurtmalarni o'qishda xatolik:", error);
+  }
+  return {};
+}
+
+// Buyurtma holatini yangilash
+function updateOrderStatus(orderId, newStatus) {
+  try {
+    if (fs.existsSync(ORDERS_FILE)) {
+      const allOrders = JSON.parse(fs.readFileSync(ORDERS_FILE, "utf8"));
+      if (allOrders[orderId]) {
+        allOrders[orderId].status = newStatus;
+        allOrders[orderId].updatedAt = new Date().toISOString();
+        fs.writeFileSync(ORDERS_FILE, JSON.stringify(allOrders, null, 2));
+        return true;
+      }
+    }
+  } catch (error) {
+    console.error("Buyurtma holatini yangilashda xatolik:", error);
+  }
+  return false;
+}
+
+// Bitta buyurtmani olish
+function getOrder(orderId) {
+  try {
+    if (fs.existsSync(ORDERS_FILE)) {
+      const allOrders = JSON.parse(fs.readFileSync(ORDERS_FILE, "utf8"));
+      return allOrders[orderId] || null;
+    }
+  } catch (error) {
+    console.error("Buyurtmani o'qishda xatolik:", error);
+  }
+  return null;
+}
+
+// ================ SAVAT TIZIMI ================
+function loadCart(userId) {
+  try {
+    if (fs.existsSync(CART_FILE)) {
+      const allCarts = JSON.parse(fs.readFileSync(CART_FILE, "utf8"));
+      return allCarts[userId] || [];
+    }
+  } catch (error) {
+    console.error("Savatchani o'qishda xatolik:", error);
+  }
+  return [];
+}
+
+function saveCart(userId, cart) {
+  try {
+    let allCarts = {};
+    if (fs.existsSync(CART_FILE)) {
+      allCarts = JSON.parse(fs.readFileSync(CART_FILE, "utf8"));
+    }
+    allCarts[userId] = cart;
+    fs.writeFileSync(CART_FILE, JSON.stringify(allCarts, null, 2));
+  } catch (error) {
+    console.error("Savatchani saqlashda xatolik:", error);
+  }
+}
+
+function addToCart(userId, product, storeId, storeName) {
+  const cart = loadCart(userId);
+  const existingIndex = cart.findIndex((item) => item.productId === product.id);
+
+  if (existingIndex >= 0) {
+    cart[existingIndex].quantity += 1;
+  } else {
+    cart.push({
+      productId: product.id,
+      name: product.name,
+      price: product.price,
+      quantity: 1,
+      storeId: storeId,
+      storeName: storeName,
+    });
+  }
+  saveCart(userId, cart);
+  return true;
+}
+
+function removeFromCart(userId, index) {
+  const cart = loadCart(userId);
+  if (index >= 0 && index < cart.length) {
+    cart.splice(index, 1);
+    saveCart(userId, cart);
+    return true;
+  }
+  return false;
+}
+
+function clearCart(userId) {
+  saveCart(userId, []);
+}
+
+// ================ BUYURTMA BERISH HOLATLARI ================
+const orderAddressStep = "order_address";
+const orderPhoneStep = "order_phone";
+
 // ================ KATEGORIYALAR ================
 const CATEGORIES = [
   "🥑 Mevalar",
@@ -21,7 +172,7 @@ const CATEGORIES = [
 ];
 
 // ================ ADMIN ID ================
-const ADMIN_IDS = ["7093573259"]; // Sizning Telegram ID
+const ADMIN_IDS = ["7093573259"];
 
 function isAdmin(userId) {
   return ADMIN_IDS.includes(userId.toString());
@@ -170,8 +321,6 @@ const addPriceStep = "add_price";
 const addPhotoStep = "add_photo";
 
 // ================ MAHSULOT TAHRIRLASH HOLATLARI ================
-const editSelectProduct = "edit_select_product";
-const editSelectField = "edit_select_field";
 const editNewName = "edit_new_name";
 const editNewPrice = "edit_new_price";
 const editNewCategory = "edit_new_category";
@@ -216,6 +365,10 @@ async function showDashboard(ctx) {
   keyboard.push([
     { text: "📋 Mening profilim", callback_data: "menu_profile" },
   ]);
+  keyboard.push([{ text: "🛒 Savatim", callback_data: "menu_cart" }]);
+  keyboard.push([
+    { text: "📋 Mening buyurtmalarim", callback_data: "menu_myorders" },
+  ]);
 
   // Agar do'koni bo'lsa (sotuvchi)
   if (store) {
@@ -236,6 +389,9 @@ async function showDashboard(ctx) {
     ]);
     keyboard.push([
       { text: "📂 Kategoriyalar", callback_data: "menu_categories" },
+    ]);
+    keyboard.push([
+      { text: "📋 Kelgan buyurtmalar", callback_data: "menu_storeorders" },
     ]);
   } else {
     keyboard.push([
@@ -318,6 +474,16 @@ bot.action("menu_profile", async (ctx) => {
   await ctx.replyWithHTML("👤 Profil ma'lumotlari uchun /profile");
 });
 
+bot.action("menu_cart", async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.replyWithHTML("🛒 Savat uchun /cart");
+});
+
+bot.action("menu_myorders", async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.replyWithHTML("📋 Buyurtmalarim uchun /myorders");
+});
+
 bot.action("menu_mystore", async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.replyWithHTML("🏪 Do'kon ma'lumotlari uchun /mystore");
@@ -358,14 +524,21 @@ bot.action("menu_stores", async (ctx) => {
   await ctx.replyWithHTML("🏬 Do'konlar ro'yxati uchun /stores");
 });
 
+bot.action("menu_storeorders", async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.replyWithHTML("📋 Kelgan buyurtmalar uchun /storeorders");
+});
+
 bot.action("menu_admin", async (ctx) => {
   await ctx.answerCbQuery();
   if (isAdmin(ctx.from.id)) {
     await ctx.replyWithHTML(
       "👑 <b>Admin panel</b>\n\n" +
-        "/admin users - Foydalanuvchilar ro'yxati\n" +
-        "/admin stores - Do'konlar ro'yxati\n" +
-        "/admin stats - Statistika"
+        "/adminusers - Foydalanuvchilar ro'yxati\n" +
+        "/adminstores - Do'konlar ro'yxati\n" +
+        "/adminstats - Umumiy statistika\n" +
+        "/adminbroadcast - Xabar yuborish\n" +
+        "/admindeleteuser - Foydalanuvchi o‘chirish"
     );
   } else {
     await ctx.replyWithHTML("❌ Bu funksiya faqat admin uchun!");
@@ -375,6 +548,323 @@ bot.action("menu_admin", async (ctx) => {
 bot.action("menu_help", async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.replyWithHTML("❓ Yordam uchun /help");
+});
+
+// ================ BUYURTMA FUNKSIYALARI ================
+bot.command("cart", async (ctx) => {
+  const userId = ctx.from.id;
+  const cart = loadCart(userId);
+
+  if (cart.length === 0) {
+    await ctx.replyWithHTML(
+      "🛒 <b>Savat</b>\n\n📭 Savatingiz bo'sh!\n\nMahsulot qo'shish uchun do'konlarni ko'ring: /stores"
+    );
+    return;
+  }
+
+  let message = "🛒 <b>Savat</b>\n\n";
+  let total = 0;
+  const keyboard = [];
+
+  for (let i = 0; i < cart.length; i++) {
+    const item = cart[i];
+    const subtotal = item.price * item.quantity;
+    total += subtotal;
+    message += `${i + 1}. ${item.name} x ${
+      item.quantity
+    } = ${subtotal.toLocaleString()} so'm\n`;
+    message += `   🏪 ${item.storeName}\n`;
+    keyboard.push([
+      { text: `❌ ${item.name} o'chirish`, callback_data: `cart_remove_${i}` },
+    ]);
+  }
+
+  message += `\n💰 <b>Jami: ${total.toLocaleString()} so'm</b>\n\n`;
+  message += "📦 Buyurtma berish uchun /order";
+
+  await ctx.replyWithHTML(message, {
+    reply_markup: { inline_keyboard: keyboard },
+  });
+});
+
+bot.action(/cart_remove_(\d+)/, async (ctx) => {
+  const index = parseInt(ctx.match[1]);
+  const userId = ctx.from.id;
+  removeFromCart(userId, index);
+  await ctx.answerCbQuery("✅ Mahsulot savatdan o'chirildi!");
+  await ctx.replyWithHTML("🛒 Savat yangilandi. /cart bilan ko'ring");
+});
+
+bot.command("order", async (ctx) => {
+  const userId = ctx.from.id;
+  const cart = loadCart(userId);
+
+  if (cart.length === 0) {
+    await ctx.replyWithHTML(
+      "❌ Savatingiz bo'sh! Avval mahsulot qo'shing: /stores"
+    );
+    return;
+  }
+
+  if (!ctx.session) ctx.session = {};
+  ctx.session.step = orderAddressStep;
+
+  await ctx.replyWithHTML(
+    "📦 <b>Buyurtma berish</b>\n\n" +
+      "1-qadam: <b>Yetkazib berish manzilingizni</b> kiriting:\n\n" +
+      "Masalan: <i>Toshkent sh., Chilonzor t., 12-uy</i>\n\n" +
+      "Bekor qilish uchun /cancel"
+  );
+});
+
+bot.command("myorders", async (ctx) => {
+  const userId = ctx.from.id;
+  const orders = loadOrders(userId, "customer");
+
+  if (Object.keys(orders).length === 0) {
+    await ctx.replyWithHTML(
+      "📭 <b>Sizning buyurtmalaringiz</b>\n\nHozircha hech qanday buyurtma yo'q!\n\nBuyurtma berish: /stores"
+    );
+    return;
+  }
+
+  let message = "📋 <b>Sizning buyurtmalaringiz</b>\n\n";
+  for (const [id, order] of Object.entries(orders).reverse().slice(0, 10)) {
+    message += `🆔 <code>${id}</code>\n`;
+    message += `📦 ${order.items.length} ta mahsulot\n`;
+    message += `💰 Jami: ${order.total.toLocaleString()} so'm\n`;
+    message += `📊 Holat: ${order.status}\n`;
+    message += `📅 Sana: ${new Date(order.createdAt).toLocaleDateString()}\n`;
+    message += `───────────\n`;
+  }
+
+  await ctx.replyWithHTML(message);
+});
+
+bot.command("storeorders", async (ctx) => {
+  const userId = ctx.from.id;
+  const store = loadStore(userId);
+
+  if (!store) {
+    await ctx.replyWithHTML(
+      "❌ Siz do'kon ochmagansiz! Do'kon ochish: /setupstore"
+    );
+    return;
+  }
+
+  const orders = loadOrders(userId, "seller");
+
+  if (Object.keys(orders).length === 0) {
+    await ctx.replyWithHTML(
+      "📭 <b>Do'koningizga kelgan buyurtmalar</b>\n\nHozircha hech qanday buyurtma yo'q!"
+    );
+    return;
+  }
+
+  let message = "📋 <b>Do'koningizga kelgan buyurtmalar</b>\n\n";
+  const keyboard = [];
+
+  for (const [id, order] of Object.entries(orders).reverse().slice(0, 10)) {
+    message += `🆔 <code>${id}</code>\n`;
+    message += `📦 ${order.items.length} ta mahsulot\n`;
+    message += `💰 Jami: ${order.total.toLocaleString()} so'm\n`;
+    message += `📊 Holat: ${order.status}\n`;
+    message += `👤 Mijoz: ${order.customerName}\n`;
+    message += `📍 Manzil: ${order.address}\n`;
+    message += `───────────\n`;
+    keyboard.push([
+      {
+        text: `✏️ ${id.slice(-6)} holatini o'zgartirish`,
+        callback_data: `order_status_${id}`,
+      },
+    ]);
+  }
+
+  await ctx.replyWithHTML(message, {
+    reply_markup: { inline_keyboard: keyboard },
+  });
+});
+
+bot.command("orderstatus", async (ctx) => {
+  const userId = ctx.from.id;
+  const orderId = ctx.message.text.replace("/orderstatus", "").trim();
+
+  if (!orderId) {
+    await ctx.replyWithHTML(
+      "🔍 <b>Buyurtma holatini ko'rish</b>\n\n" +
+        "Foydalanish: <code>/orderstatus BUYURTMA_ID</code>\n\n" +
+        "Misol: <code>/orderstatus 1748451234567</code>\n\n" +
+        "Buyurtma ID ni /myorders dan olishingiz mumkin."
+    );
+    return;
+  }
+
+  const order = getOrder(orderId);
+
+  if (!order) {
+    await ctx.replyWithHTML(
+      "❌ <b>Buyurtma topilmadi!</b>\n\nBuyurtma ID ni tekshiring."
+    );
+    return;
+  }
+
+  if (order.customerId !== userId && !isAdmin(userId)) {
+    await ctx.replyWithHTML("❌ Bu buyurtma sizga tegishli emas!");
+    return;
+  }
+
+  let message = "🔍 <b>Buyurtma ma'lumotlari</b>\n\n";
+  message += `🆔 ID: <code>${order.id}</code>\n`;
+  message += `📊 Holat: ${order.status}\n`;
+  message += `💰 Jami: ${order.total.toLocaleString()} so'm\n`;
+  message += `👤 Mijoz: ${order.customerName}\n`;
+  message += `📞 Telefon: ${order.customerPhone}\n`;
+  message += `📍 Manzil: ${order.address}\n`;
+  message += `📅 Sana: ${new Date(order.createdAt).toLocaleString()}\n\n`;
+  message += `<b>📦 Mahsulotlar:</b>\n`;
+
+  for (const item of order.items) {
+    message += `  • ${item.name} x ${item.quantity} = ${(
+      item.price * item.quantity
+    ).toLocaleString()} so'm\n`;
+  }
+
+  await ctx.replyWithHTML(message);
+});
+
+// Buyurtma holatini o'zgartirish
+bot.action(/order_status_(.+)/, async (ctx) => {
+  const orderId = ctx.match[1];
+
+  const statusKeyboard = [
+    [{ text: "🆕 Yangi", callback_data: `order_set_${orderId}_NEW` }],
+    [
+      {
+        text: "⏳ Jarayonda",
+        callback_data: `order_set_${orderId}_PROCESSING`,
+      },
+    ],
+    [{ text: "🚚 Yuborilgan", callback_data: `order_set_${orderId}_SHIPPED` }],
+    [
+      {
+        text: "✅ Yetkazilgan",
+        callback_data: `order_set_${orderId}_DELIVERED`,
+      },
+    ],
+    [
+      {
+        text: "❌ Bekor qilish",
+        callback_data: `order_set_${orderId}_CANCELLED`,
+      },
+    ],
+  ];
+
+  await ctx.answerCbQuery();
+  await ctx.editMessageText(`✏️ Buyurtma holatini tanlang:`, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: statusKeyboard },
+  });
+});
+
+bot.action(/order_set_(.+)_(.+)/, async (ctx) => {
+  const orderId = ctx.match[1];
+  const statusKey = ctx.match[2];
+  const newStatus = ORDER_STATUS[statusKey];
+
+  updateOrderStatus(orderId, newStatus);
+
+  // Mijozga xabar yuborish
+  const order = getOrder(orderId);
+  if (order && order.customerId) {
+    try {
+      await bot.telegram.sendMessage(
+        order.customerId,
+        `📦 <b>Buyurtma holati yangilandi!</b>\n\n` +
+          `🆔 Buyurtma ID: <code>${orderId}</code>\n` +
+          `📊 Yangi holat: ${newStatus}\n\n` +
+          `Batafsil: /orderstatus ${orderId}`,
+        { parse_mode: "HTML" }
+      );
+    } catch (e) {}
+  }
+
+  await ctx.answerCbQuery(`✅ Holat "${newStatus}" ga o'zgartirildi!`);
+  await ctx.editMessageText(
+    `✅ Buyurtma holati yangilandi!\n\n🆔 ${orderId}\n📊 Yangi holat: ${newStatus}`
+  );
+});
+
+// ================ MAHSULOTNI SAVATGA QO'SHISH ================
+bot.action(/add_to_cart_(.+)_(\d+)/, async (ctx) => {
+  const storeId = ctx.match[1];
+  const productIndex = parseInt(ctx.match[2]);
+
+  const store = loadStore(storeId);
+  const products = loadProducts(storeId);
+  const product = products[productIndex];
+
+  if (!store || !product) {
+    await ctx.answerCbQuery("Xatolik! Mahsulot topilmadi.");
+    return;
+  }
+
+  const userId = ctx.from.id;
+  addToCart(
+    userId,
+    {
+      id: `${storeId}_${productIndex}`,
+      name: product.name,
+      price: product.price,
+    },
+    storeId,
+    store.name
+  );
+
+  await ctx.answerCbQuery(`✅ ${product.name} savatga qo'shildi!`);
+  await ctx.replyWithHTML(
+    `✅ <b>${product.name}</b> savatga qo'shildi!\n\n` +
+      `🛒 Savatni ko'rish: /cart\n` +
+      `📦 Buyurtma berish: /order`
+  );
+});
+
+// ================ DO'KON MAHSULOTLARINI KO'RISH ================
+bot.action(/view_store_(.+)/, async (ctx) => {
+  const storeId = ctx.match[1];
+  const store = loadStore(storeId);
+  const products = loadProducts(storeId);
+
+  if (!store) {
+    await ctx.answerCbQuery("Do'kon topilmadi!");
+    return;
+  }
+
+  let message = `🏪 <b>${store.name}</b>\n\n`;
+  message += `📍 ${store.address}\n`;
+  message += `📞 ${store.phone}\n\n`;
+  message += `<b>📦 Mahsulotlar:</b>\n`;
+
+  const keyboard = [];
+
+  if (products.length === 0) {
+    message += "Hozircha mahsulot yo‘q.";
+  } else {
+    for (let i = 0; i < products.length; i++) {
+      const p = products[i];
+      message += `${i + 1}. ${p.name} - ${p.price} so‘m\n`;
+      keyboard.push([
+        {
+          text: `➕ ${p.name} savatga`,
+          callback_data: `add_to_cart_${storeId}_${i}`,
+        },
+      ]);
+    }
+  }
+
+  await ctx.answerCbQuery();
+  await ctx.replyWithHTML(message, {
+    reply_markup: { inline_keyboard: keyboard },
+  });
 });
 
 // ================ DO'KON RO'YXATDAN O'TKAZISH ================
@@ -411,8 +901,7 @@ bot.command("mystore", async (ctx) => {
 
   if (!store) {
     await ctx.replyWithHTML(
-      "🏪 <b>Siz hali do‘kon ro‘yxatdan o‘tkazmagansiz!</b>\n\n" +
-        "Do‘kon ro‘yxatdan o‘tkazish uchun: /setupstore"
+      "🏪 <b>Siz hali do‘kon ro‘yxatdan o‘tkazmagansiz!</b>\n\nDo‘kon ro‘yxatdan o‘tkazish uchun: /setupstore"
     );
     return;
   }
@@ -436,8 +925,7 @@ bot.command("editstore", async (ctx) => {
 
   if (!store) {
     await ctx.replyWithHTML(
-      "🏪 <b>Siz hali do‘kon ro‘yxatdan o‘tkazmagansiz!</b>\n\n" +
-        "Do‘kon ro‘yxatdan o‘tkazish uchun: /setupstore"
+      "🏪 <b>Siz hali do‘kon ro‘yxatdan o‘tkazmagansiz!</b>\n\nDo‘kon ro‘yxatdan o‘tkazish uchun: /setupstore"
     );
     return;
   }
@@ -454,10 +942,7 @@ bot.command("editstore", async (ctx) => {
       `📍 Hozirgi manzil: ${store.address}\n` +
       `📞 Hozirgi telefon: ${store.phone}\n\n` +
       `Qaysi ma'lumotni o'zgartirmoqchisiz?`,
-    {
-      parse_mode: "HTML",
-      reply_markup: { inline_keyboard: keyboard },
-    }
+    { parse_mode: "HTML", reply_markup: { inline_keyboard: keyboard } }
   );
 });
 
@@ -475,8 +960,7 @@ bot.command("addproduct", async (ctx) => {
   const keyboard = getCategoryKeyboard();
 
   await ctx.replyWithHTML(
-    "🆕 <b>Yangi mahsulot qo‘shish</b>\n\n" +
-      "1-qadam: <b>Kategoriyani tanlang:</b>",
+    "🆕 <b>Yangi mahsulot qo‘shish</b>\n\n1-qadam: <b>Kategoriyani tanlang:</b>",
     {
       reply_markup: { inline_keyboard: keyboard },
     }
@@ -490,8 +974,7 @@ bot.command("myproducts", async (ctx) => {
 
   if (products.length === 0) {
     await ctx.replyWithHTML(
-      "📭 <b>Siz hali hech qanday mahsulot qo‘shmagansiz!</b>\n\n" +
-        "Mahsulot qo‘shish uchun: /addproduct"
+      "📭 <b>Siz hali hech qanday mahsulot qo‘shmagansiz!</b>\n\nMahsulot qo‘shish uchun: /addproduct"
     );
     return;
   }
@@ -554,9 +1037,7 @@ bot.action(/view_cat_(\d+)/, async (ctx) => {
   if (products.length === 0) {
     await ctx.answerCbQuery(`📭 ${category} da mahsulot yo‘q`);
     await ctx.editMessageText(
-      `📂 <b>${category}</b>\n\n` +
-        `📭 Bu kategoriyada hozircha mahsulot yo‘q.\n\n` +
-        `Mahsulot qo‘shish uchun /addproduct`,
+      `📂 <b>${category}</b>\n\n📭 Bu kategoriyada hozircha mahsulot yo‘q.\n\nMahsulot qo‘shish uchun /addproduct`,
       { parse_mode: "HTML" }
     );
     return;
@@ -579,8 +1060,7 @@ bot.command("editproduct", async (ctx) => {
 
   if (products.length === 0) {
     await ctx.replyWithHTML(
-      "📭 <b>Tahrirlash uchun hech qanday mahsulot yo‘q!</b>\n\n" +
-        "Mahsulot qo‘shish uchun: /addproduct"
+      "📭 <b>Tahrirlash uchun hech qanday mahsulot yo‘q!</b>\n\nMahsulot qo‘shish uchun: /addproduct"
     );
     return;
   }
@@ -610,8 +1090,7 @@ bot.command("deleteproduct", async (ctx) => {
 
   if (products.length === 0) {
     await ctx.replyWithHTML(
-      "📭 <b>Sizda o‘chirish uchun hech qanday mahsulot yo‘q!</b>\n\n" +
-        "Mahsulot qo‘shish uchun: /addproduct"
+      "📭 <b>Sizda o‘chirish uchun hech qanday mahsulot yo‘q!</b>\n\nMahsulot qo‘shish uchun: /addproduct"
     );
     return;
   }
@@ -653,7 +1132,7 @@ bot.command("stores", async (ctx) => {
     message += `📛 <b>${store.name}</b>\n`;
     message += `📍 ${store.address}\n`;
     message += `📞 ${store.phone}\n`;
-    message += `🔗 /store_${userId}\n\n`;
+    message += `───────────\n`;
     keyboard.push([
       { text: `🏪 ${store.name}`, callback_data: `view_store_${userId}` },
     ]);
@@ -662,35 +1141,6 @@ bot.command("stores", async (ctx) => {
   await ctx.replyWithHTML(message, {
     reply_markup: { inline_keyboard: keyboard },
   });
-});
-
-// ================ DO'KON MAHSULOTLARINI KO'RISH ================
-bot.action(/view_store_(.+)/, async (ctx) => {
-  const storeId = ctx.match[1];
-  const store = loadStore(storeId);
-  const products = loadProducts(storeId);
-
-  if (!store) {
-    await ctx.answerCbQuery("Do'kon topilmadi!");
-    return;
-  }
-
-  let message = `🏪 <b>${store.name}</b>\n\n`;
-  message += `📍 ${store.address}\n`;
-  message += `📞 ${store.phone}\n\n`;
-  message += `<b>📦 Mahsulotlar:</b>\n`;
-
-  if (products.length === 0) {
-    message += "Hozircha mahsulot yo‘q.";
-  } else {
-    for (let i = 0; i < products.length; i++) {
-      const p = products[i];
-      message += `${i + 1}. ${p.name} - ${p.price} so‘m\n`;
-    }
-  }
-
-  await ctx.answerCbQuery();
-  await ctx.replyWithHTML(message);
 });
 
 // ================ LINK ================
@@ -707,24 +1157,27 @@ bot.command("link", async (ctx) => {
 bot.command("help", async (ctx) => {
   await ctx.replyWithHTML(
     "❓ <b>Yordam</b>\n\n" +
-      "<b>🏪 DO‘KON BOSHQARISH:</b>\n" +
-      "/setupstore - Do‘kon ro‘yxatdan o‘tkazish\n" +
-      "/mystore - Do‘kon ma'lumotlarini ko‘rish\n" +
-      "/editstore - Do‘kon ma'lumotlarini tahrirlash\n\n" +
+      "<b>🛒 BUYURTMA TIZIMI:</b>\n" +
+      "/stores - Do'konlar ro'yxati\n" +
+      "/cart - Savatni ko'rish\n" +
+      "/order - Buyurtma berish\n" +
+      "/myorders - Mening buyurtmalarim\n" +
+      "/storeorders - Do'konga kelgan buyurtmalar (sotuvchi)\n" +
+      "/orderstatus - Buyurtma holatini ko'rish\n\n" +
+      "<b>🏪 DO'KON BOSHQARISH:</b>\n" +
+      "/setupstore - Do'kon ochish\n" +
+      "/mystore - Do'kon ma'lumotlari\n" +
+      "/editstore - Do'konni tahrirlash\n\n" +
       "<b>📦 MAHSULOT BOSHQARISH:</b>\n" +
-      "/addproduct - Yangi mahsulot qo‘shish\n" +
-      "/myproducts - Mahsulotlarimni ko‘rish\n" +
+      "/addproduct - Mahsulot qo'shish\n" +
+      "/myproducts - Mahsulotlarim\n" +
       "/categories - Kategoriyalar\n" +
       "/editproduct - Mahsulot tahrirlash\n" +
-      "/deleteproduct - Mahsulot o‘chirish\n\n" +
-      "<b>🏬 BOSHQA DO'KONLAR:</b>\n" +
-      "/stores - Barcha do‘konlar ro‘yxati\n\n" +
+      "/deleteproduct - Mahsulot o'chirish\n\n" +
       "<b>🔗 UMUMIY:</b>\n" +
       "/dashboard - Asosiy menyu\n" +
       "/profile - Mening profilim\n" +
       "/link - Vitrina linkingiz\n" +
-      "/start - Botni boshlash\n" +
-      "/help - Yordam\n" +
       "/cancel - Amalni bekor qilish"
   );
 });
@@ -736,10 +1189,226 @@ bot.command("cancel", async (ctx) => {
   ctx.session.tempProduct = null;
   ctx.session.tempStore = null;
   ctx.session.editData = null;
+  ctx.session.tempOrder = null;
   await ctx.replyWithHTML("❌ <b>Bekor qilindi!</b>");
 });
 
-// ================ TEXT HANDLER (RO'YXATDAN O'TKAZISH, QO'SHISH, TAHRIRLASH) ================
+// ================ ADMIN BUYRUQLARI ================
+bot.command("admin", async (ctx) => {
+  if (!isAdmin(ctx.from.id)) {
+    await ctx.replyWithHTML("❌ Bu funksiya faqat admin uchun!");
+    return;
+  }
+
+  await ctx.replyWithHTML(
+    "👑 <b>Admin panel</b>\n\n" +
+      "/adminusers - Foydalanuvchilar ro'yxati\n" +
+      "/adminstores - Do'konlar ro'yxati\n" +
+      "/adminstats - Umumiy statistika\n" +
+      "/adminbroadcast - Xabar yuborish\n" +
+      "/admindeleteuser - Foydalanuvchi o‘chirish"
+  );
+});
+
+bot.command("adminstats", async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return;
+
+  let usersCount = 0,
+    storesCount = 0,
+    productsCount = 0,
+    ordersCount = 0;
+
+  try {
+    if (fs.existsSync(USERS_FILE))
+      usersCount = Object.keys(
+        JSON.parse(fs.readFileSync(USERS_FILE, "utf8"))
+      ).length;
+  } catch (e) {}
+  try {
+    if (fs.existsSync(STORES_FILE))
+      storesCount = Object.keys(
+        JSON.parse(fs.readFileSync(STORES_FILE, "utf8"))
+      ).length;
+  } catch (e) {}
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const p = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+      for (const id in p) productsCount += p[id].length;
+    }
+  } catch (e) {}
+  try {
+    if (fs.existsSync(ORDERS_FILE))
+      ordersCount = Object.keys(
+        JSON.parse(fs.readFileSync(ORDERS_FILE, "utf8"))
+      ).length;
+  } catch (e) {}
+
+  await ctx.replyWithHTML(
+    "📊 <b>Umumiy statistika</b>\n\n" +
+      `👥 Foydalanuvchilar: <b>${usersCount}</b> ta\n` +
+      `🏪 Do'konlar: <b>${storesCount}</b> ta\n` +
+      `📦 Mahsulotlar: <b>${productsCount}</b> ta\n` +
+      `🛒 Buyurtmalar: <b>${ordersCount}</b> ta`
+  );
+});
+
+bot.command("adminusers", async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return;
+
+  try {
+    if (!fs.existsSync(USERS_FILE)) {
+      await ctx.replyWithHTML("📭 Hech qanday foydalanuvchi topilmadi!");
+      return;
+    }
+    const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    const userList = Object.entries(users);
+
+    if (userList.length === 0) {
+      await ctx.replyWithHTML("📭 Hech qanday foydalanuvchi topilmadi!");
+      return;
+    }
+
+    let message = "👥 <b>Foydalanuvchilar ro‘yxati</b>\n\n";
+    for (const [userId, user] of userList.slice(0, 20)) {
+      message += `🆔 <code>${userId}</code>\n📛 ${user.firstName} ${
+        user.lastName
+      }\n📞 ${user.phone}\n🔹 @${user.username || "yo‘q"}\n───────────\n`;
+    }
+    if (userList.length > 20)
+      message += `\n📊 Jami: ${userList.length} ta foydalanuvchi`;
+    await ctx.replyWithHTML(message);
+  } catch (error) {
+    await ctx.replyWithHTML("❌ Xatolik yuz berdi!");
+  }
+});
+
+bot.command("adminstores", async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return;
+
+  try {
+    if (!fs.existsSync(STORES_FILE)) {
+      await ctx.replyWithHTML("📭 Hech qanday do‘kon topilmadi!");
+      return;
+    }
+    const stores = JSON.parse(fs.readFileSync(STORES_FILE, "utf8"));
+    const storeList = Object.entries(stores);
+
+    if (storeList.length === 0) {
+      await ctx.replyWithHTML("📭 Hech qanday do‘kon topilmadi!");
+      return;
+    }
+
+    let message = "🏪 <b>Do‘konlar ro‘yxati</b>\n\n";
+    for (const [ownerId, store] of storeList.slice(0, 20)) {
+      message += `📛 <b>${store.name}</b>\n📍 ${store.address}\n📞 ${store.phone}\n👤 ID: <code>${ownerId}</code>\n───────────\n`;
+    }
+    if (storeList.length > 20)
+      message += `\n📊 Jami: ${storeList.length} ta do‘kon`;
+    await ctx.replyWithHTML(message);
+  } catch (error) {
+    await ctx.replyWithHTML("❌ Xatolik yuz berdi!");
+  }
+});
+
+bot.command("adminbroadcast", async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return;
+
+  const messageText = ctx.message.text.replace("/adminbroadcast", "").trim();
+
+  if (!messageText) {
+    await ctx.replyWithHTML(
+      "📢 <b>Xabar yuborish</b>\n\nFoydalanish: <code>/adminbroadcast Xabar matni</code>"
+    );
+    return;
+  }
+
+  try {
+    if (!fs.existsSync(USERS_FILE)) {
+      await ctx.replyWithHTML("❌ Hech qanday foydalanuvchi topilmadi!");
+      return;
+    }
+    const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    let sent = 0,
+      failed = 0;
+
+    await ctx.replyWithHTML("📤 <b>Xabar yuborilmoqda...</b>");
+
+    for (const userId in users) {
+      try {
+        await bot.telegram.sendMessage(
+          userId,
+          "📢 <b>Admin xabari</b>\n\n" + messageText,
+          { parse_mode: "HTML" }
+        );
+        sent++;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } catch (error) {
+        failed++;
+      }
+    }
+
+    await ctx.replyWithHTML(
+      "✅ <b>Xabar yuborish tugadi!</b>\n\n✅ Yuborildi: " +
+        sent +
+        " ta\n❌ Yuborilmadi: " +
+        failed +
+        " ta"
+    );
+  } catch (error) {
+    await ctx.replyWithHTML("❌ Xatolik yuz berdi!");
+  }
+});
+
+bot.command("admindeleteuser", async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return;
+
+  const userId = ctx.message.text.replace("/admindeleteuser", "").trim();
+
+  if (!userId) {
+    await ctx.replyWithHTML(
+      "🗑 <b>Foydalanuvchi o‘chirish</b>\n\nFoydalanish: <code>/admindeleteuser USER_ID</code>\n\nUSER_ID ni /adminusers dan olishingiz mumkin."
+    );
+    return;
+  }
+
+  try {
+    if (!fs.existsSync(USERS_FILE)) {
+      await ctx.replyWithHTML("❌ Hech qanday foydalanuvchi topilmadi!");
+      return;
+    }
+    const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+
+    if (!users[userId]) {
+      await ctx.replyWithHTML("❌ Foydalanuvchi topilmadi!");
+      return;
+    }
+
+    delete users[userId];
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+
+    // Do'konni o'chirish
+    if (fs.existsSync(STORES_FILE)) {
+      const stores = JSON.parse(fs.readFileSync(STORES_FILE, "utf8"));
+      if (stores[userId]) delete stores[userId];
+      fs.writeFileSync(STORES_FILE, JSON.stringify(stores, null, 2));
+    }
+
+    // Mahsulotlarni o'chirish
+    if (fs.existsSync(DATA_FILE)) {
+      const products = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+      if (products[userId]) delete products[userId];
+      fs.writeFileSync(DATA_FILE, JSON.stringify(products, null, 2));
+    }
+
+    await ctx.replyWithHTML(
+      `✅ <b>Foydalanuvchi o‘chirildi!</b>\n\n🆔 ID: <code>${userId}</code>`
+    );
+  } catch (error) {
+    await ctx.replyWithHTML("❌ Xatolik yuz berdi!");
+  }
+});
+
+// ================ TEXT HANDLER ================
 bot.on("text", async (ctx, next) => {
   if (!ctx.session) ctx.session = {};
 
@@ -828,7 +1497,7 @@ bot.on("text", async (ctx, next) => {
     return;
   }
 
-  // MAHSULOT QO'SHISH (NOM VA NARX)
+  // MAHSULOT QO'SHISH
   if (ctx.session.step === addNameStep) {
     const name = ctx.message.text.trim();
     if (name === "/cancel") return next();
@@ -936,6 +1605,84 @@ bot.on("text", async (ctx, next) => {
     return;
   }
 
+  // BUYURTMA MANZIL
+  if (ctx.session.step === orderAddressStep) {
+    const address = ctx.message.text.trim();
+    if (address === "/cancel") return next();
+    ctx.session.tempOrder = { address };
+    ctx.session.step = orderPhoneStep;
+    await ctx.replyWithHTML(
+      "✅ <b>Manzil:</b> " + address + "\n\n2-qadam: <b>Telefon raqamingiz</b>"
+    );
+    return;
+  }
+  if (ctx.session.step === orderPhoneStep) {
+    const phone = ctx.message.text.trim();
+    if (phone === "/cancel") return next();
+    ctx.session.tempOrder.phone = phone;
+
+    const userId = ctx.from.id;
+    const user = loadUser(userId);
+    const cart = loadCart(userId);
+
+    let total = 0;
+    const orderItems = [];
+    for (const item of cart) {
+      const subtotal = item.price * item.quantity;
+      total += subtotal;
+      orderItems.push({
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        storeId: item.storeId,
+      });
+    }
+
+    const orderData = {
+      customerId: userId,
+      customerName: `${user.firstName} ${user.lastName}`,
+      customerPhone: phone,
+      address: ctx.session.tempOrder.address,
+      items: orderItems,
+      total: total,
+      storeId: cart[0]?.storeId,
+    };
+
+    const orderId = saveOrder(orderData);
+
+    // Sotuvchiga xabar
+    const storeId = cart[0]?.storeId;
+    if (storeId) {
+      try {
+        await bot.telegram.sendMessage(
+          storeId,
+          "🆕 <b>Yangi buyurtma!</b>\n\n" +
+            `🆔 Buyurtma ID: <code>${orderId}</code>\n` +
+            `👤 Mijoz: ${user.firstName} ${user.lastName}\n` +
+            `📞 Telefon: ${phone}\n` +
+            `📍 Manzil: ${ctx.session.tempOrder.address}\n` +
+            `💰 Jami: ${total.toLocaleString()} so'm\n\n` +
+            `/storeorders - Barcha buyurtmalarni ko'rish`,
+          { parse_mode: "HTML" }
+        );
+      } catch (e) {}
+    }
+
+    clearCart(userId);
+
+    await ctx.replyWithHTML(
+      "✅ <b>Buyurtma muvaffaqiyatli qabul qilindi!</b>\n\n" +
+        `🆔 Buyurtma ID: <code>${orderId}</code>\n` +
+        `💰 Jami: ${total.toLocaleString()} so'm\n` +
+        `📍 Manzil: ${ctx.session.tempOrder.address}\n\n` +
+        "📋 Buyurtma holatini kuzatish: /myorders"
+    );
+
+    ctx.session.step = null;
+    ctx.session.tempOrder = null;
+    return;
+  }
+
   await next();
 });
 
@@ -994,8 +1741,7 @@ bot.action(/cat_(\d+)/, async (ctx) => {
 
     await ctx.answerCbQuery(`✅ ${newCategory} ga o'zgartirildi`);
     await ctx.editMessageText(
-      "✅ <b>Mahsulot kategoriyasi yangilandi!</b>\n\n" +
-        "📂 Yangi kategoriya: " +
+      "✅ <b>Mahsulot kategoriyasi yangilandi!</b>\n\n📂 Yangi kategoriya: " +
         newCategory
     );
     ctx.session.step = null;
@@ -1042,10 +1788,7 @@ bot.action(/edit_select_(\d+)/, async (ctx) => {
         `💰 Hozirgi narx: ${product.price} so'm\n` +
         `📂 Hozirgi kategoriya: ${product.category || "📦 Boshqa"}\n\n` +
         `Qaysi maydonni o'zgartirmoqchisiz?`,
-      {
-        parse_mode: "HTML",
-        reply_markup: { inline_keyboard: keyboard },
-      }
+      { parse_mode: "HTML", reply_markup: { inline_keyboard: keyboard } }
     );
   }
 });
@@ -1060,7 +1803,7 @@ bot.action(/edit_field_name_(\d+)/, async (ctx) => {
 
   await ctx.answerCbQuery();
   await ctx.editMessageText(
-    "✏️ <b>Yangi nomni kiriting:</b>\n\n" + "Bekor qilish uchun /cancel",
+    "✏️ <b>Yangi nomni kiriting:</b>\n\nBekor qilish uchun /cancel",
     { parse_mode: "HTML" }
   );
 });
@@ -1074,7 +1817,7 @@ bot.action(/edit_field_price_(\d+)/, async (ctx) => {
 
   await ctx.answerCbQuery();
   await ctx.editMessageText(
-    "💰 <b>Yangi narxni kiriting:</b>\n\n" + "Bekor qilish uchun /cancel",
+    "💰 <b>Yangi narxni kiriting:</b>\n\nBekor qilish uchun /cancel",
     { parse_mode: "HTML" }
   );
 });
@@ -1128,8 +1871,7 @@ bot.action("edit_store_name", async (ctx) => {
   ctx.session.step = editStoreNameStep;
   await ctx.answerCbQuery();
   await ctx.editMessageText(
-    "✏️ <b>Yangi do'kon nomini kiriting:</b>\n\n" +
-      "Bekor qilish uchun /cancel",
+    "✏️ <b>Yangi do'kon nomini kiriting:</b>\n\nBekor qilish uchun /cancel",
     { parse_mode: "HTML" }
   );
 });
@@ -1139,7 +1881,7 @@ bot.action("edit_store_address", async (ctx) => {
   ctx.session.step = editStoreAddressStep;
   await ctx.answerCbQuery();
   await ctx.editMessageText(
-    "📍 <b>Yangi manzilni kiriting:</b>\n\n" + "Bekor qilish uchun /cancel",
+    "📍 <b>Yangi manzilni kiriting:</b>\n\nBekor qilish uchun /cancel",
     { parse_mode: "HTML" }
   );
 });
@@ -1149,8 +1891,7 @@ bot.action("edit_store_phone", async (ctx) => {
   ctx.session.step = editStorePhoneStep;
   await ctx.answerCbQuery();
   await ctx.editMessageText(
-    "📞 <b>Yangi telefon raqamini kiriting:</b>\n\n" +
-      "Bekor qilish uchun /cancel",
+    "📞 <b>Yangi telefon raqamini kiriting:</b>\n\nBekor qilish uchun /cancel",
     { parse_mode: "HTML" }
   );
 });
@@ -1163,193 +1904,6 @@ bot.command("skip", async (ctx) => {
     await ctx.replyWithHTML("✅ <b>Mahsulot rasm holda qo'shildi!</b>");
     ctx.session.step = null;
     ctx.session.tempProduct = null;
-  }
-});
-
-// ADMIN BUYRUQLARI
-bot.command("admin", async (ctx) => {
-  if (!isAdmin(ctx.from.id)) {
-    await ctx.replyWithHTML("❌ Bu funksiya faqat admin uchun!");
-    return;
-  }
-
-  await ctx.replyWithHTML(
-    "👑 <b>Admin panel</b>\n\n" +
-      "/adminusers - Foydalanuvchilar ro'yxati\n" +
-      "/adminstores - Do'konlar ro'yxati\n" +
-      "/adminstats - Umumiy statistika\n" +
-      "/adminbroadcast - Xabar yuborish\n" +
-      "/admindeleteuser - Foydalanuvchi o‘chirish"
-  );
-});
-
-bot.command("adminstats", async (ctx) => {
-  if (!isAdmin(ctx.from.id)) return;
-
-  // Foydalanuvchilar soni
-  let usersCount = 0;
-  let storesCount = 0;
-  let productsCount = 0;
-  let ordersCount = 0;
-
-  try {
-    if (fs.existsSync(USERS_FILE)) {
-      const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
-      usersCount = Object.keys(users).length;
-    }
-  } catch (e) {}
-
-  try {
-    if (fs.existsSync(STORES_FILE)) {
-      const stores = JSON.parse(fs.readFileSync(STORES_FILE, "utf8"));
-      storesCount = Object.keys(stores).length;
-    }
-  } catch (e) {}
-
-  try {
-    if (fs.existsSync(DATA_FILE)) {
-      const products = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-      for (const userId in products) {
-        productsCount += products[userId].length;
-      }
-    }
-  } catch (e) {}
-
-  try {
-    if (fs.existsSync(ORDERS_FILE)) {
-      const orders = JSON.parse(fs.readFileSync(ORDERS_FILE, "utf8"));
-      ordersCount = Object.keys(orders).length;
-    }
-  } catch (e) {}
-
-  await ctx.replyWithHTML(
-    "📊 <b>Umumiy statistika</b>\n\n" +
-      `👥 Foydalanuvchilar: <b>${usersCount}</b> ta\n` +
-      `🏪 Do'konlar: <b>${storesCount}</b> ta\n` +
-      `📦 Mahsulotlar: <b>${productsCount}</b> ta\n` +
-      `🛒 Buyurtmalar: <b>${ordersCount}</b> ta\n` +
-      `👑 Admin: @${ctx.from.username || ctx.from.first_name}`
-  );
-});
-
-bot.command("adminusers", async (ctx) => {
-  if (!isAdmin(ctx.from.id)) return;
-
-  try {
-    if (!fs.existsSync(USERS_FILE)) {
-      await ctx.replyWithHTML("📭 <b>Hech qanday foydalanuvchi topilmadi!</b>");
-      return;
-    }
-
-    const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
-    const userList = Object.entries(users);
-
-    if (userList.length === 0) {
-      await ctx.replyWithHTML("📭 <b>Hech qanday foydalanuvchi topilmadi!</b>");
-      return;
-    }
-
-    let message = "👥 <b>Foydalanuvchilar ro‘yxati</b>\n\n";
-    for (const [userId, user] of userList.slice(0, 20)) {
-      message += `🆔 <code>${userId}</code>\n`;
-      message += `📛 ${user.firstName} ${user.lastName}\n`;
-      message += `📞 ${user.phone}\n`;
-      message += `🔹 @${user.username || "yo‘q"}\n`;
-      message += `───────────\n`;
-    }
-
-    if (userList.length > 20) {
-      message += `\n📊 Jami: ${userList.length} ta foydalanuvchi`;
-    }
-
-    await ctx.replyWithHTML(message);
-  } catch (error) {
-    await ctx.replyWithHTML("❌ Xatolik yuz berdi!");
-  }
-});
-
-bot.command("adminstores", async (ctx) => {
-  if (!isAdmin(ctx.from.id)) return;
-
-  try {
-    if (!fs.existsSync(STORES_FILE)) {
-      await ctx.replyWithHTML("📭 <b>Hech qanday do‘kon topilmadi!</b>");
-      return;
-    }
-
-    const stores = JSON.parse(fs.readFileSync(STORES_FILE, "utf8"));
-    const storeList = Object.entries(stores);
-
-    if (storeList.length === 0) {
-      await ctx.replyWithHTML("📭 <b>Hech qanday do‘kon topilmadi!</b>");
-      return;
-    }
-
-    let message = "🏪 <b>Do‘konlar ro‘yxati</b>\n\n";
-    for (const [ownerId, store] of storeList.slice(0, 20)) {
-      message += `📛 <b>${store.name}</b>\n`;
-      message += `📍 ${store.address}\n`;
-      message += `📞 ${store.phone}\n`;
-      message += `👤 ID: <code>${ownerId}</code>\n`;
-      message += `───────────\n`;
-    }
-
-    if (storeList.length > 20) {
-      message += `\n📊 Jami: ${storeList.length} ta do‘kon`;
-    }
-
-    await ctx.replyWithHTML(message);
-  } catch (error) {
-    await ctx.replyWithHTML("❌ Xatolik yuz berdi!");
-  }
-});
-
-bot.command("adminbroadcast", async (ctx) => {
-  if (!isAdmin(ctx.from.id)) return;
-
-  const message = ctx.message.text.replace("/adminbroadcast", "").trim();
-
-  if (!message) {
-    await ctx.replyWithHTML(
-      "📢 <b>Xabar yuborish</b>\n\n" +
-      "Foydalanish: <code>/adminbroadcast Xabar matni</code>\n\n" +
-      "Misol: <code>/adminbroadcast Yangi funksiya qo'shildi!</code>"
-    );
-    return;
-  }
-
-  try {
-    if (!fs.existsSync(USERS_FILE)) {
-      await ctx.replyWithHTML("❌ Hech qanday foydalanuvchi topilmadi!");
-      return;
-    }
-
-    const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
-    let sent = 0;
-    let failed = 0;
-
-    await ctx.replyWithHTML("📤 <b>Xabar yuborilmoqda...</b>");
-
-    for (const userId in users) {
-      try {
-        await bot.telegram.sendMessage(userId, 
-          "📢 <b>Admin xabari</b>\n\n" + message,
-          { parse_mode: "HTML" }
-        );
-        sent++;
-        await new Promise(resolve => setTimeout(resolve, 100)); // 100ms kutish
-      } catch (error) {
-        failed++;
-      }
-    }
-
-    await ctx.replyWithHTML(
-      "✅ <b>Xabar yuborish tugadi!</b>\n\n" +
-      `✅ Yuborildi: ${sent} ta\n` +
-      `❌ Yuborilmadi: ${failed} ta`
-    );
-  } catch (error) {
-    await ctx.replyWithHTML("❌ Xatolik yuz berdi!");
   }
 });
 
