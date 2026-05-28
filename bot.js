@@ -1324,7 +1324,7 @@ bot.command("link", async (ctx) => {
   const userId = ctx.from.id;
   await ctx.replyWithHTML(
     "🔗 <b>Sizning vitrina linkingiz:</b>\n" +
-      `<code>https://online-vitrina-bot.up.railway.app/${userId}</code>\n\n` +
+      `<code>https://online-vitrina-bot-production.up.railway.app/${userId}</code>\n\n` +
       "Bu linkni mijozlaringizga yuboring!"
   );
 });
